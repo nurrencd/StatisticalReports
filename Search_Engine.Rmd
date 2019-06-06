@@ -1,0 +1,252 @@
+---
+title: "Blaise Pascal Text Analysis"
+author: "Chris Nurrenberg"
+date: "October 1, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Blaise Pascal produced many written thoughts about God, man, nature, and reason throughout his life. For this portfolio, we are interested in seeing what information can be derived from a text analysis of his written thoughts. There are two parts to the analysis: 1) a word cloud meant to display the most common words (and, in essence, the most common themes) of his thoughts, and 2) a naive implementation of a keyword-based search algorithm. The search algorithm will depend mostly upon word frequency within and between documents, and lengths of the documents.
+
+## Methodology
+```{r, echo=FALSE}
+suppressWarnings(library(stringr))
+suppressWarnings(library(wordcloud))
+suppressWarnings(library(tm))
+rawData <- read.csv("C:/Users/nurrencd/Documents/1-Rose-Hulman/MA/386/Datasets/PascalsPensees.csv")
+suppressWarnings(stopwords <- readLines("C:/Users/nurrencd/Documents/1-Rose-Hulman/MA/386/Datasets/stopwords.txt"))
+stopwords <- stopwords[stopwords!=""]
+```
+
+First, the data and proper libraries (`stringr`, `wordcloud`, and `tm`) were loaded. Additionally, a file of stopwords was loaded in. The first part of the analysis is the wordcloud. Its creation is displayed in the appendix.
+
+```{r, eval=TRUE, echo=FALSE}
+#remove punctuation
+stopwords <- str_replace_all(stopwords, "[:punct:]","")
+# remove punctuation, write to lower case
+cleanThoughts <- tolower(str_replace_all(rawData$Thought, pattern=c("_"=" ","[:punct:]"="")))
+
+#create a corpus for the wordcloud
+corpus <- Corpus(VectorSource(cleanThoughts))
+corpus <- tm_map(corpus, removeWords, stopwords)
+
+# crete frequency array
+dtm <- TermDocumentMatrix(corpus)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+
+fivePercent <- floor(length(Terms(dtm))*.05)
+```
+
+```{r, cache=TRUE, eval=FALSE, echo=FALSE}
+set.seed(17) #for reproducibility
+suppressWarnings(wordcloud(words = d$word, freq = d$freq, scale=c(2,0.55), min.freq = 1, max.words=fivePercent))
+```
+
+Now, for the second analysis: the search-algorithm. The setup for this procedure took five main steps.
+
+```{r, echo=FALSE}
+thoughtCount <- length(cleanThoughts)
+```
+
+First, word frequency needs to be established. A corpus is created.
+```{r}
+suppressWarnings(corpus <- Corpus(VectorSource(cleanThoughts)))
+suppressWarnings(corpus <- tm_map(corpus, removeWords, stopwords))
+DTM <- DocumentTermMatrix(corpus)
+```
+
+```{r, echo=FALSE}
+wordCount <- length(Terms(DTM))
+```
+
+Second, word frequency is established by summing up the existence of each non-zero value.
+
+```{r}
+
+presentDTM <- as.matrix(DTM) > 0 # when a word exists per doc
+occursDTM <- apply(as.matrix(presentDTM), 2, sum) # total occurrences
+```
+
+Inverse Document Frequency is established next.
+
+```{r}
+occursDTM <- 1 + log(thoughtCount / occursDTM)
+```
+
+```{r, echo=FALSE}
+weights <- matrix(rep(0, thoughtCount * wordCount),nrow = thoughtCount,ncol=wordCount)
+```
+
+Then, the weight matrix is created. `tf * idf` is established for each term, with respect for each document. The normalization of each document is performed in the same step.
+```{r}
+for (i in 1:thoughtCount){
+  weights[i,] <- as.matrix(DTM)[i,] * occursDTM # tf x idf
+  weights[i,] <- weights[i,]/sqrt(sum(weights[i,]^2)) #normalization
+}
+```
+
+```{r, echo=FALSE}
+colnames(weights) <- Terms(DTM)
+
+```
+
+Finally, we need to create an easy-to-use way of using the search algorithm. For each search, it must be recreated as a document similar to the thoughts presented.
+
+```{r, echo=FALSE}
+
+createDocument <- function(words){
+  # some cleaning
+  words <- tolower(words)
+  # removes irrelevant words in search
+  words <- intersect(words, Terms(DTM))
+  
+  #create new document, and allow string-based indexing for ease
+  newDoc <- matrix(rep(0, length(Terms(DTM))), ncol=wordCount, nrow=1)
+  colnames(newDoc) <- Terms(DTM)
+  # consider repeated words as more significant within a search
+  wordCount <- as.matrix(table(words))
+  if (length(words) > 0){
+    #normalize search
+    normVec <- wordCount[,1]/sqrt(sum(wordCount[,1]^2))
+    #apply normalization to proper indexing within the new document
+    newDoc[1,rownames(wordCount)] = normVec
+  }
+  return(as.vector(newDoc))
+  
+}
+
+
+searchForDocument <- function(words){
+  #create document for comparisons
+  doc <- createDocument(words)
+  results <- c(rep(0, thoughtCount))
+  for (i in 1:thoughtCount){
+    #calcualte the "angle" between the word vectors
+    thought <- weights[i,]
+    results[i] <- crossprod(thought, doc)/sqrt(crossprod(thought)  * crossprod(doc))
+  }
+  # return closest match
+  finalIndex <- which.max(results)
+  return(rawData[finalIndex,])
+}
+
+```
+
+
+
+## Conclusion
+
+A few questions were left in the description of the assignment:
+
+What common themes show up in Pascal's thoughts?
+
+From the word cloud, it is clear many of his thoughts revolve around the concepts of god, human nature, faith and reason, and Christianity.
+
+What happens when searching for an empty document?
+```{r}
+searchForDocument(c(""))
+```
+Nothing is returned. In caluclating the angles between documents, a division by 0 occurs. This is a useful result from a pragmatic perspective--nothing should be returned upon an empty query.
+
+What thought would most resemble the search "God, wager, probability, believe"?
+```{r}
+searchForDocument(c("god", "wager", "probability", "believe"))
+```
+The expected result seems like it would be the thought where the famous Pascal's Wager originates, but this is not the case from this implementation. I believe the result is due to the fact that `god` is matched most often. Considering it is the mode of a shorter thought, it makes sense that it would heavily align with the search. Swapping the order of the words does not change the search, so there seems to be no error in implementation in that aspect.
+
+There are a few improvements that can be made to the analyis. For example, the IDF of each word doesn't take into account the context in which each word is used. For example, if an obscure adjective is used a single time throughout all the works examined, it will be given a much higher weight than a common theme that actually matters. A simple frequency analysis will not be able to accomodate for these changes. At best, an implementation of this algorithm will attempt to condense words into similar stems at worst, and attempt to perform some level of natural language processing at best.
+
+The algorithm cannot determine the importance of each word occurance from the context either. A thought outlining an argument may take a long time building background, then present a formal argument (which would be the most important part). There is no weighting that favors the most significant parts of each thought. I'm unsure of ways to implement improvements in this manner, however.
+
+## Appendix
+Wordcloud 1
+
+```{r, cache=TRUE}
+set.seed(17) #for reproducibility
+suppressWarnings(wordcloud(words = d$word, freq = d$freq, scale=c(2,0.55), min.freq = 1, max.words=fivePercent))
+```
+
+
+Entire codebase: some parts were modified for readibility
+```{r, eval=FALSE}
+library(stringr)
+library(wordcloud)
+rawData <- read.csv("C:/Users/nurrencd/Documents/1-Rose-Hulman/MA/386/Datasets/PascalsPensees.csv")
+
+stopwords <- readLines("C:/Users/nurrencd/Documents/1-Rose-Hulman/MA/386/Datasets/stopwords.txt")
+
+stopwords <- stopwords[stopwords!=""]
+stopwords <- str_replace_all(stopwords, "[:punct:]","")
+stopwords_regex = paste(stopwords, collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+
+cleanThoughts <- tolower(str_replace_all(rawData$Thought, pattern=c("_"=" ","[:punct:]"="")))
+
+
+corpus <- Corpus(VectorSource(cleanThoughts))
+corpus <- tm_map(corpus, removeWords, stopwords)
+dtm <- TermDocumentMatrix(corpus)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+
+fivePercent <- floor(length(allWords)*.05)
+wordcloud(words = d$word, freq = d$freq, min.freq = 1,
+          max.words=fivePercent, random.color = TRUE)
+
+wordCount <- length(Terms(DTM))
+thoughtCount <- length(cleanThoughts)
+
+# search engine
+library(tm)
+corpus <- Corpus(VectorSource(cleanThoughts))
+corpus <- tm_map(corpus, removeWords, stopwords)
+DTM <- DocumentTermMatrix(corpus)
+
+presentDTM <- as.matrix(DTM) > 0
+occursDTM <- apply(as.matrix(presentDTM), 2, sum)
+occursDTM <- 1 + log(thoughtCount/occursDTM)
+
+weights <- matrix(rep(0, thoughtCount * wordCount),nrow = thoughtCount,ncol=wordCount)
+
+for (i in 1:thoughtCount){
+  weights[i,] <- as.matrix(DTM)[i,] * occursDTM
+  weights[i,] <- weights[i,]/sqrt(sum(weights[i,]^2))
+}
+colnames(weights) <- Terms(DTM)
+
+createDocument <- function(words){
+  words <- tolower(words)
+  words <- intersect(words, Terms(DTM))
+  newDoc <- matrix(rep(0, wordCount), ncol=wordCount, nrow=1)
+  colnames(newDoc) <- Terms(DTM)
+  
+  wordCount <- as.matrix(table(words))
+  if (length(words) > 0){
+    normVec <- wordCount[,1]/sqrt(sum(wordCount[,1]^2))
+    newDoc[1,rownames(wordCount)] = normVec
+  }
+  return(as.vector(newDoc))
+  
+}
+
+searchForDocument <- function(words){
+  doc <- createDocument(words)
+  results <- c(rep(0, thoughtCount))
+  for (i in 1:thoughtCount){
+    thought <- weights[i,]
+    results[i] <- crossprod(thought, doc)/sqrt(crossprod(thought)  * crossprod(doc))
+  }
+  finalIndex <- which.max(results)
+  return(rawData[finalIndex,])
+}
+
+
+```

@@ -1,0 +1,286 @@
+---
+title: "Simulating a Lucky Charms Cereal Box Game"
+author: "Chris Nurrenberg"
+date: "October 18, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Many cereal products' boxes are designed with some sort of thematic artwork, or often some sort of game centered around the cereal. While the games themselves are quite simplistic, producing probabilistic analysis on the outcomes is quite a difficult and daunting task. However, in the modern era of computing, simulating these mathematically complex systems is incredibly trivial.
+
+
+This portfolio is centered around a specific Lucky Charms box's game. It will address a few questions: 1) How likely is it that the third player wins the game? 2) On average, how many rounds will a game last? and 3) How likely is it that at least one player uses a "ladder"?
+
+# Methodology
+
+The first step to simulating the game is setting up the proper data structures.
+
+```{r, eval=FALSE}
+# simulation data
+m <- 10000
+rolls <- c(1,2,3,4,5,6,7,8) # number of charm choices
+board <- c(1,2,3,4,5,6,7,8, # charm-based representation of the board
+           1,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,1,8,
+           7,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,7,8,
+           1,2,5,4,5,6,7,8,1)
+tiles <- length(board)
+# desired results data
+rounds <- rep(0, m)
+ladderTaken <- rep(0, m)
+winners <- rep(0, m)
+
+```
+
+Then, the overall procedures of play must be outlined. Each player must pick a charm, and move to the next associated spot.
+
+```{r, eval=FALSE}
+turnRolls <- sample(rolls, 4, replace=TRUE)
+```
+
+Deciding where to move on the board was slightly trickier. The board was not uniform in the order of the charms, so modular arithmetic could not have been used to determine the outcome universally. 
+
+```{r, eval=FALSE}
+distanceToMove <- function(x){
+  #x is of the form c(position, charm)
+  which(board[x[1]+1:tiles]==x[2])[1] 
+}
+```
+
+This small check determines the number of spaces away from your next destination. This function is applied across the rolls and positions of each player per turn.
+
+Then, the simulation needs to determine if the players landed on any "ladders" or "chutes." Here's an example of how this is done:
+```{r, eval=FALSE}
+heartChute <- (p == 49) # 49th tile on board
+p <- p + -3 * heartChute # will send players back three spaces
+hasTurn <- hasTurn * (1-heartChute) #this tile made players lose a turn
+```
+
+Five of these chutes and ladders were placed on the board. Each one is a vectorized calculation to minimze conditional checks to speed up the simulation.
+
+Each of the aforementioned calculations are done every turn for each player.
+
+```{r, eval=FALSE}
+for (i in 1:m){
+  positions <- c(1,1,1,1) #reset game position
+  roundCount <- 0
+  
+  while (TRUE){
+    results <- takeTurn(positions, i)
+    positions <- results[1:4]
+    
+    ladderTaken[i] <- sum(c(ladderTaken[i], results[5]), na.rm = TRUE)
+    roundCount <- roundCount + 1
+    
+    if (length(which(is.na(positions)))>0){
+      winners[i] <- which(is.na(positions))[1]
+      rounds[i] <- roundCount
+      break
+    }
+  }
+}
+```
+
+The winner is determined by landing outside the hard-coded board, since any charm past the final heart ends in a victory. The final check of the winner picks the first location of an `NA` value. Since the players take their turns in a regular order, it does not matter if the simulation computes an additional winner in the same round.
+
+
+# Results
+
+```{r, echo=FALSE}
+# Portfolio 6. Simulation.
+
+#Simulating a Lucky Charms box game.
+# Address 3 questions:
+# How often does player 3 win?
+# How many rounds does a game last on average?
+# How likely is it that at least one of the players lands on a foward bridge?
+set.seed(17)
+
+m <- 100000
+positions <- c(1,1,1,1)
+hasTurn <- c(1,1,1,1) #whether or not a player lost their turn
+rolls <- c(1,2,3,4,5,6,7,8) # number of charm choices
+board <- c(1,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,1,8,
+           7,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,7,8,
+           1,2,5,4,5,6,7,8,1)
+
+tiles <- length(board)
+
+rounds <- rep(0, m)
+ladderTaken <- rep(0, m)
+winners <- rep(0, m)
+
+
+takeTurn <- function(p, i){
+  turnRolls <- sample(rolls, 4, replace=TRUE)
+  
+  takenBridgeThisTurn <- 0
+  
+  spacesToMove <- apply(matrix(c(p, turnRolls), ncol=2), 1, FUN=distanceToMove)
+  spacesToMove <- spacesToMove * hasTurn
+  p <- p + spacesToMove
+  hasTurn <- c(1,1,1,1)
+  ## account for slides and lost turns
+  cloverLadder <- (p == 4)
+  p <- p + 4 * cloverLadder
+  
+  hourGlassChute <- (p == 15)
+  p <- p + -3 * hourGlassChute
+  
+  rainbowLadder <- (p == 25)
+  p <- p + 6 * rainbowLadder
+  
+  shootingStarLadder <-  (p == 42)
+  p <- p + 3 * shootingStarLadder
+  
+  heartChute <- (p == 49)
+  p <- p + -3 * heartChute
+  hasTurn <- hasTurn * (1-heartChute)
+  
+  # calculate if bridges have been taken
+  takenBridgeThisTurn <- sum(cloverLadder + rainbowLadder + shootingStarLadder)
+  return(c(p, takenBridgeThisTurn))
+}
+
+distanceToMove <- function(x){
+  which(board[x[1]+1:tiles]==x[2])[1]
+}
+
+
+for (i in 1:m){
+  positions <- c(1,1,1,1)
+  roundCount <- 0
+  
+  while (TRUE){
+    results <- takeTurn(positions, i)
+    positions <- results[1:4]
+    
+    ladderTaken[i] <- sum(c(ladderTaken[i], results[5]), na.rm = TRUE)
+    roundCount <- roundCount + 1
+    
+    if (length(which(is.na(positions)))>0){
+      winners[i] <- which(is.na(positions))[1]
+      rounds[i] <- roundCount
+      break
+    }
+  }
+}
+```
+
+How often does the third player win?
+
+```{r}
+mean(winners==1)
+mean(winners==2)
+mean(winners==3)
+mean(winners==4)
+```
+The third player appears to win approximately % of the time.
+
+On average, how many rounds will a game with four players last?
+
+```{r}
+mean(rounds)
+```
+
+A game will last approximately n turns on average.
+
+How likely is it that at least one of the players lands on a "ladder"?
+```{r}
+mean(ladderTaken>0)
+```
+The ladders are used at least once per game on average n% of the time.
+
+# Appendix
+```{r, eval=FALSE}
+# Portfolio 6. Simulation.
+
+#Simulating a Lucky Charms box game.
+# Address 3 questions:
+# How often does player 3 win?
+# How many rounds does a game last on average?
+# How likely is it that at least one of the players lands on a foward bridge?
+set.seed(17)
+
+m <- 100000
+positions <- c(1,1,1,1)
+hasTurn <- c(1,1,1,1) #whether or not a player lost their turn
+rolls <- c(1,2,3,4,5,6,7,8) # number of charm choices
+board <- c(1,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,1,8,
+           7,2,3,4,5,6,7,8,
+           1,2,3,4,5,6,7,8,
+           1,2,5,4,5,6,7,8,1)
+
+tiles <- length(board)
+
+rounds <- rep(0, m)
+ladderTaken <- rep(0, m)
+winners <- rep(0, m)
+
+
+takeTurn <- function(p, i){
+  turnRolls <- sample(rolls, 4, replace=TRUE)
+  
+  takenBridgeThisTurn <- 0
+  
+  spacesToMove <- apply(matrix(c(p, turnRolls), ncol=2), 1, FUN=distanceToMove)
+  spacesToMove <- spacesToMove * hasTurn
+  p <- p + spacesToMove
+  hasTurn <- c(1,1,1,1)
+  ## account for slides and lost turns
+  cloverLadder <- (p == 4)
+  p <- p + 4 * cloverLadder
+  
+  hourGlassChute <- (p == 15)
+  p <- p + -3 * hourGlassChute
+  
+  rainbowLadder <- (p == 25)
+  p <- p + 6 * rainbowLadder
+  
+  shootingStarLadder <-  (p == 42)
+  p <- p + 3 * shootingStarLadder
+  
+  heartChute <- (p == 49)
+  p <- p + -3 * heartChute
+  hasTurn <- hasTurn * (1-heartChute)
+  
+  # calculate if bridges have been taken
+  takenBridgeThisTurn <- sum(cloverLadder + rainbowLadder + shootingStarLadder)
+  return(c(p, takenBridgeThisTurn))
+}
+
+distanceToMove <- function(x){
+  which(board[x[1]+1:tiles]==x[2])[1]
+}
+
+
+for (i in 1:m){
+  positions <- c(1,1,1,1)
+  roundCount <- 0
+  
+  while (TRUE){
+    results <- takeTurn(positions, i)
+    positions <- results[1:4]
+    
+    ladderTaken[i] <- sum(c(ladderTaken[i], results[5]), na.rm = TRUE)
+    roundCount <- roundCount + 1
+    
+    if (length(which(is.na(positions)))>0){
+      winners[i] <- which(is.na(positions))[1]
+      rounds[i] <- roundCount
+      break
+    }
+  }
+}
+```

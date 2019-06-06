@@ -1,0 +1,68 @@
+---
+title: "Algorithm Runtime Analysis"
+author: "Chris Nurrenberg"
+date: "November 9, 2018"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::read_chunk("./ReproducibleReportScript.R")
+```
+
+## Problem Statement
+```{r loadData, echo=FALSE}
+```
+When presented with data on algorithm run times, is it possible to discern if the algorithms are actually different? 
+
+This particular company presented `r dim(algorithm.data)[1]` data points from `r dim(algorithm.data)[2]` different algorithms, wanting to know if the mean runtimes and variability within runtimes were different.
+
+## Data Overview
+The distribution of the data provided:
+```{r splitByAlgorithm, echo=FALSE}
+```
+```{r graphRawData}
+```
+
+## Methodology Overview
+
+* Bootstrap on existing data points
+
+* Sample for both algorithms
+
+* Construct mean and variance distributions
+
+
+## Bootstrapping
+
+Bootstrap is applied, and means and differences are replicated.
+
+```{r bootstrap, echo=TRUE}
+```
+
+The results are stored for further analysis.
+
+## Distribution Analysis
+
+The following confidence intervals were produced from the bootstrapped calculations:
+
+```{r distributionGeneration}
+```
+```{r tableResults, eval=TRUE, results='asis'}
+```
+
+## Distribution Analysis - Mean
+
+```{r graphResultsMean}
+```
+
+## Distribution Analysis - Std Dev
+
+```{r graphResultsSd}
+```
+
+## Conclusions
+
+* No evidence to suggest means actually differ.
+
+* Significant to support idea that algorithm variability differs.

@@ -1,0 +1,202 @@
+---
+title: "Algorithm Runtime Analysis"
+author: "Chris Nurrenberg"
+date: "November 2, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+When working on large-scale computations, efficiency becomes absolutely paramount. Using the most efficient algorithm can save critical amounts of time over the course of many large-scale production processes. For this portfolio, a company recorded twelve timed trials of two different rasterization algorithm runtimes. The company wants two questions answered from the data provided: First, are the runtimes of each algorithm actually different? And second, is the variability between the two algorithms different?
+
+## Methodology
+
+The amount of supplied data is small. There are 12 runtime data points for each algorithm:
+
+```{r, echo=FALSE}
+aTimes <- c(168,99,113,119,125,164,165,165,127,117,128,133)
+cTimes <- c(113,127,117,120,120,106,136,132,118,135,126,126)
+times <- matrix(c(aTimes,cTimes), byrow = TRUE, ncol=12)
+rownames(times) <- c("Algorithm A: ", "Algorithm C: ")
+colnames(times) <- c(1,2,3,4,5,6,7,8,9,10,11,12)
+knitr::kable(times, caption="Algorithm runtime trials")
+```
+
+Figure 1A and 1B in the appendix presnets a quick analysis of the raw data.
+
+Before analysis begins, a few parameters must be defined:
+
+```{r, eval=FALSE}
+set.seed(17)
+# alpha value for confidence intervals
+alpha <- 0.05
+# number of bootstrapped samples per quantity
+m <- 100000
+```
+
+To discern a difference in mean runtimes and variance, new sets of 12 trials will be sampled with replacement from each algorithms' times. The means and standard deviations will be subtracted from each other. That result will be generated 100,000 times to get a confidence interval to answer the proposed question of interest.
+
+```{r, eval=FALSE}
+# Runtime difference sampling
+diff.boot.mean <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  mean(aSample - cSample)
+})
+
+# varianve runtime generation
+diff.boot.sd <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  sd(aSample - cSample)
+})
+
+```
+
+After the bootstrapped calculations have been obtained, confidence intervals must be generated to answer the questions concerning the runtime means and variances.
+
+```{r, eval=FALSE}
+diff.mean.ci <- quantile(diff.mean.density, probs=c(0.025,0.975))
+diff.sd.ci <- quantile(diff.boot.sd, probs=c(0.025,0.975))
+```
+
+## Results
+```{r, echo=FALSE}
+#Portfolio 7 script
+
+set.seed(17)
+aTimes <- c(168,99,113,119,125,164,165,165,127,117,128,133)
+cTimes <- c(113,127,117,120,120,106,136,132,118,135,126,126)
+
+frame <- data.frame(Times=c(aTimes, cTimes), Group=as.factor(rep(c("A", "C"), each=length(aTimes))))
+
+alpha <- 0.05
+m <- 100000
+
+diff.boot.mean <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  mean(aSample - cSample)
+})
+
+diff.boot.sd <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  sd(aSample - cSample)
+})
+
+diff.mean.density <- density(diff.boot.mean)
+diff.mean.ci <- quantile(diff.boot.mean, probs=c(0.025,0.975))
+
+diff.sd.density <- density(diff.boot.sd)
+diff.sd.ci <- quantile(diff.boot.sd, probs=c(0.025,0.975))
+
+```
+
+The intervals for the mean runtime in seconds:
+
+```{r, echo=FALSE}
+meanRuntimes <- matrix(c(diff.mean.ci, diff.sd.ci), ncol=2, byrow = TRUE)
+rownames(meanRuntimes) <- c("Mean Difference: ", "SD Difference: ")
+colnames(meanRuntimes) <- c("2.5%", "97.5%")
+knitr::kable(meanRuntimes)
+```
+
+Since the confidence interval for the means includes zero, there is not substantial evidence to support the hypothesis that the mean algorithm runtimes actually differ. The hypothesis that they are indeed the same cannot be rejected based on this data alone. See Figure 2 for a graphical representation of this result.
+
+The confidence interval for the standard deviation of the algorithm rnutimes does not include zero. This is substantial evidence to support the hypothesis that the algorithm variances do significantly differ. See Figure 3 for a graphical representation of this result.
+
+If a recommendation is to be made from this result, Algorithm C should be kept as a standard practice for more predictability, since there is insignificant evidence to suspect algorithm A is faster on average.
+
+## Appendix
+
+```{r, echo=FALSE}
+boxplot(Times ~ Group, data=frame, main="Algorithm Runtime Comparison", ylab="Runtime in Seconds", xlab="Algorithm")
+```
+
+Figure 1A. The initial data for analysis. There appears to be obvious differences in variability between the algorithms, but a difference in means is not clear.
+
+```{r, echo=FALSE}
+a.dens <- density(aTimes)
+c.dens <- density(cTimes)
+plot(density(aTimes), xlab="Runtime in seconds", main="Raw data runtime distributions", ylim=c(0,max(c(unlist(a.dens[2]),unlist(c.dens[2])))))
+lines(density(cTimes), col="red")
+legend(145, 0.035, legend=c("Algorithm A","Algorithm C"), col=c("black", "red"), lty=c(1,1))
+```
+
+Figure 1B. The distributions of runtimes. As with the box plots, there appears to be a clear difference in variances, but mean differences are unclear from the graph.
+
+```{r, echo=FALSE}
+plot(diff.mean.density, 
+     main="Mean Algorithm Runtime Difference Distribution", 
+     xlab="Runtime difference in seconds")
+abline(v=diff.mean.ci, lty=3)
+```
+
+Figure 2. The mean algorithm runtime density distribution. 
+
+```{r, echo=FALSE}
+plot(diff.sd.density, 
+     main="Algorithm Runtime Variance Density Distributions", 
+     xlab="Standard deviation of runtime in seconds")
+abline(v=diff.sd.ci, lty=3)
+```
+
+Figure 3. The algorithm runtime variance distribution.
+
+Full code used:
+```{r, eval=FALSE}
+#Portfolio 7 script
+
+set.seed(17)
+aTimes <- c(168,99,113,119,125,164,165,165,127,117,128,133)
+cTimes <- c(113,127,117,120,120,106,136,132,118,135,126,126)
+
+frame <- data.frame(Times=c(aTimes, cTimes), Group=as.factor(rep(c("A", "C"), each=length(aTimes))))
+alpha <- 0.05
+m <- 100000
+
+diff.boot.mean <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  mean(aSample - cSample)
+})
+
+diff.boot.sd <- replicate(m, {
+  aSample <- sample(aTimes, length(aTimes), replace=TRUE)
+  cSample <- sample(cTimes, length(cTimes), replace=TRUE)
+  sd(aSample - cSample)
+})
+
+diff.mean.density <- density(diff.boot.mean)
+diff.mean.ci <- quantile(diff.boot.mean, probs=c(0.025,0.975))
+
+diff.sd.density <- density(diff.boot.sd)
+diff.sd.ci <- quantile(diff.boot.sd, probs=c(0.025,0.975))
+
+
+boxplot(Times ~ Group, data=frame, main="Algorithm Runtime Comparison", ylab="Runtime in Seconds", xlab="Algorithm")
+
+a.dens <- density(aTimes)
+c.dens <- density(cTimes)
+plot(density(aTimes), xlab="Runtime in seconds", main="Raw data runtime distributions", ylim=c(0,max(c(unlist(a.dens[2]),unlist(c.dens[2])))))
+lines(density(cTimes), col="red")
+legend(150, 0.035, legend=c("Algorithm A","Algorithm C"), col=c("black", "red"), lty=c(1,1))
+
+plot(diff.mean.density, 
+     main="Mean Algorithm Runtime Difference Distribution", 
+     xlab="Runtime difference in seconds")
+abline(v=diff.mean.ci, lty=3)
+
+plot(diff.sd.density, 
+     main="Algorithm Runtime Variance Density Distributions", 
+     xlab="Standard deviation of runtime in seconds")
+abline(v=diff.sd.ci, lty=3)
+```
+
+
+

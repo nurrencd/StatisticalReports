@@ -1,0 +1,162 @@
+---
+title: "Predicting Rainfaill"
+author: "Chris Nurrenberg"
+date: "September 4, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The CoCoRaHS network for weather data collection is being used by local Indiana marinas in order to get an estimate of the expected precipitation over the marinas. However, the data being used is not as granular as would be desirable, and there are no acurate estimation methods being applied to the data. The goal of this report is to outline a computational methodology to give a more precise estimate of the precipitation in any given marina. This attempt outlines two different "nearest neighbors" approaches: five nearest stations, and all stations within 25 miles. Which approach gives the best estimate of precipitation for the marinas? 
+
+## Methods
+The dataset had five varialbes:
+
+* State - The State the weather station was located in
+* Station.Number  - The code for the particular weather station
+* Total.Precip  - The total precipitation recorded for that particular location
+* Latitude  - The latitudinal coordinate of the location
+* Longitude - The Longitudinal coordinate of the location
+
+In order to calculate the expected rainfall at particular marinas, coordinates of the three specified marinas had to be collected,
+then rounded to the precision given in the dataframe.
+
+* Patona Bay Marina, Indiana - 41.3356° N, 85.7812° W 
+* Culver Marina, Indiana -     41.1871° N, 86.3897° W
+* Morse Marina, Indiana -      40.0935° N, 86.0338° W
+
+Since the methodology applied to each marina is identical, only one is used during this report to minimize excessive repitition.
+
+To calculate the distances from the stations to the marinas, I use the Haversine formula provided in the geosphere package.
+The coordinates of all the stations are condensed to a matrix, then the Haversine function is applied with respect to each marina to get the respective distances.
+
+```{r, eval = FALSE}
+# Load Precip.df file into environment to run the code
+# and load dplyr and geosphere packages
+
+# Condense Longitude and latitude into single matrix.
+# Haversine function requires (Longitude, Latitude) vectors.
+coordinateVectors <- dplyr::select(Precip.df, Longitude, Latitude)
+
+# applies haversine function to each coordinate vector. The output is in meters, and is then converted to miles.
+pbmDistances <- apply(coordinateVectors, 1, distm, pbmCoordinates, fun=distHaversine)/1609.34
+```
+
+To prepare the data for the final estimations, I create dataframes for each marina, keeping track of the precipitation, Station.ID, and distance. Stations with missing data are discarded from future considerations as well.
+
+The first approached used in this assignment is k-nearest neighbors, with k=5.
+
+```{r, eval = FALSE}
+# sort marina-specific dataframes by distance, ascending
+pbmDataFrame <- pbmDataFrame[order(pbmDataFrame$pbmDistances),]
+# select top 5
+pbmTop5 <- pbmDataFrame[1:5,]
+```
+
+Once the appropriate data was isolated, I applied a weighted average function to the remaining data in order to get an accurate estimation of the precipitation in the marina. The inverse square of distance was used as the chosen weighting function.
+
+```{r, eval = FALSE}
+# weighted.mean(precipitation, inverse square of distances weighting function)
+pbm5nnPrediction <- weighted.mean(pbmTop5$Precip.df.Total.Precip, (1 / pbmTop5$pbmDistances ^ 2) / sum(1 / pbmTop5$pbmDistances ^ 2))
+```
+
+Then, the same calculation methodology was applied to all weather station locations within 25 miles of each marina.
+
+```{r, eval = FALSE}
+#Aggregate all station data within 25 miles of the Marina
+pbm25mileRadius <- pbmDataFrame[pbmDataFrame$pbmDistances<25,]
+# Same weighted mean as before, inverse square of distance
+pbm25milesPrediction <- weighted.mean(pbm25mileRadius$Precip.df.Total.Precip, 1 / pbm25mileRadius$pbmDistances ^ 2 / sum(1 / pbm25mileRadius$pbmDistances ^ 2))
+```
+
+## Results
+
+Table 1 outlines the results. Each methodology outlined above was applied to each marina, resulting in six values for precipitation totals.
+
+```{r, echo = FALSE}
+results <- matrix(c(.1096, .0644, .3772, .1204, .0588, .8648), nrow=3)
+colnames(results) <- c("Five Neighbors", "Distance Under 25 Miles")
+rownames(results) <- c("Patona Bay Marina", "Culver Marina", "Morse Marina")
+library(knitr)
+kable(results)
+
+```
+
+
+*Table 1: The results of the five-nearest-neighbor approach and 25-mile radius approach. Values given are in inches.*
+
+Values obtained were similar for both methodologies for all marinas except the Morse Marina. This might be due to the fact that there were 29 observations within a 25 mile radius, compared to 14 and 9 of Patona Bay and Culver Marinas, respectively. 
+
+A strict "n-nearest neighbors" approach has interesting implications. The amount of neighbors has nothing to do with the actual distance from the target. So while 5 neighbors for one marina may be really close and give a good estimate, five neighbors of another marina may be extremely far apart and give a poor estimate. On the other hand, using this approach ensures each marina is sampling from the same number of stations.
+
+A radius-based approach fixes the problems in the strict "n-nearest-neighbors" model. You can ensure that all of the data points are within a certain distance. However, the distance parameter needs to be tuned appropriately for the higest possible accuracy. Unfortunately, this loses the advantage previously described: the targets are not guaranteed to have a similar number of points to sample from.
+
+Since this model was created from only precipitation totals and coordinates, designing a robust model is difficult. A more robust model would most likely benefit from additional information like the direction in which weather systems are traveling to appropriately weight coordinates. For example, if a nearby datapoint knew that the above clouds and associated weather patterns were heading north, a northern target would give higher weight to that particular data point compared to a closer point with a system moving away from the target. 
+
+Considering the limitations of the model with the given data, the radius-based approach is the approach I recommend. The radius value picked for the model may have to be tuned for increased accuracy.
+
+## Appendix
+```{r, eval = FALSE}
+# Precip.df file was loaded in manually before running this code
+#load Precip.df file into environment
+
+# coordinates of the marina
+pbmCoordinates <- c(-85.78, 41.34)
+cmCoordinates <- c(-86.39, 41.19)
+mmCoordinates <- c(-86.03, 40.09)
+
+#libraries necessary for running the code
+library("geosphere")
+library("dplyr")
+
+#groups coordinates into condensed matrix
+coordinateVectors <- dplyr::select(Precip.df, Longitude, Latitude)
+
+#gets vectors of distances from each station to each marina
+pbmDistances <- apply(coordinateVectors, 1, distm, pbmCoordinates, fun=distHaversine)/1609.34
+cmDistances <- apply(coordinateVectors, 1, distm, cmCoordinates, fun=distHaversine)/1609.34
+mmDistances <- apply(coordinateVectors, 1, distm, mmCoordinates, fun=distHaversine)/1609.34
+
+#creates marina-specific dataframe
+pbmDataFrame <- data.frame(Precip.df$Total.Precip, Precip.df$Station.Number, pbmDistances)
+cmDataFrame <- data.frame(Precip.df$Total.Precip, Precip.df$Station.Number, cmDistances)
+mmDataFrame <- data.frame(Precip.df$Total.Precip, Precip.df$Station.Number, mmDistances)
+
+#omits NA values (whole rows)
+pbmDataFrame <- na.omit(pbmDataFrame)
+cmDataFrame <- na.omit(cmDataFrame)
+mmDataFrame <- na.omit(mmDataFrame)
+
+#sorts the dataframes by ascending distance values
+pbmDataFrame <- pbmDataFrame[order(pbmDataFrame$pbmDistances),]
+cmDataFrame <- cmDataFrame[order(cmDataFrame$cmDistances),]
+mmDataFrame <- mmDataFrame[order(mmDataFrame$mmDistances),]
+
+#grabs the first five for the 5-knn approach
+pbmTop5 <- pbmDataFrame[1:5,]
+cmTop5 <- cmDataFrame[1:5,]
+mmTop5 <- mmDataFrame[1:5,]
+
+#5-knn prediction, using the precipitation and inverse square function for weighting
+pbm5nnPrediction <- weighted.mean(pbmTop5$Precip.df.Total.Precip, (1/pbmTop5$pbmDistances^2)/sum(1/pbmTop5$pbmDistances^2))
+cm5nnPrediction <- weighted.mean(cmDataFrame$Precip.df.Total.Precip[1:5], (1/cmTop5$cmDistances^2)/sum(1/cmTop5$cmDistances^2))
+mm5nnPrediction <- weighted.mean(mmDataFrame$Precip.df.Total.Precip[1:5], (1/mmTop5$mmDistances^2)/sum(1/mmTop5$mmDistances^2))
+
+#grabs all stations within a 25 mile radius per marina
+pbm25mileRadius <- pbmDataFrame[pbmDataFrame$pbmDistances<25,]
+cm25mileRadius <- cmDataFrame[cmDataFrame$cmDistances<25,]
+mm25mileRadius <- mmDataFrame[mmDataFrame$mmDistances<25,]
+
+#25-mile radius prediction, using precipitation and inverse square function for weighting
+pbm25milesPrediction <- weighted.mean(pbm25mileRadius$Precip.df.Total.Precip, 1/pbm25mileRadius$pbmDistances^2/sum(1/pbm25mileRadius$pbmDistances^2))
+cm25milesPrediction <- weighted.mean(cm25mileRadius$Precip.df.Total.Precip, 1/cm25mileRadius$cmDistances^2/sum(1/cm25mileRadius$cmDistances^2))
+mm25milesPrediction <- weighted.mean(mm25mileRadius$Precip.df.Total.Precip, 1/mm25mileRadius$mmDistances^2/sum(1/mm25mileRadius$mmDistances^2))
+
+
+```
+
+
